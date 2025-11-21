@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kitiumai-db-postgres
+    environment:
+      POSTGRES_USER: kitiumai
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_DB: kitiumai_db
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kitiumai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kitiumai-network
+
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    container_name: kitiumai-db-pgbouncer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASES_HOST: postgres
+      DATABASES_PORT: 5432
+      DATABASES_USER: kitiumai
+      DATABASES_PASSWORD: dev_password
+      DATABASES_DBNAME: kitiumai_db
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: 1000
+      PGBOUNCER_DEFAULT_POOL_SIZE: 10
+      PGBOUNCER_MIN_POOL_SIZE: 2
+      PGBOUNCER_RESERVE_POOL_SIZE: 1
+    ports:
+      - "6432:6432"
+    networks:
+      - kitiumai-network
+    healthcheck:
+      test: ["CMD", "psql", "-U", "kitiumai", "-h", "localhost", "-c", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:7
+    container_name: kitiumai-db-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: kitiumai
+      MONGO_INITDB_ROOT_PASSWORD: dev_password
+      MONGO_INITDB_DATABASE: kitiumai_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - kitiumai-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: pgAdmin for PostgreSQL management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: kitiumai-db-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@kitiumai.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - kitiumai-network
+
+volumes:
+  postgres_data:
+  mongodb_data:
+
+networks:
+  kitiumai-network:
+    driver: bridge
