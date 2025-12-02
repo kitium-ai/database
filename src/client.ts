@@ -2,12 +2,17 @@
  * Prisma client initialization and management
  */
 
-import { PrismaClient } from '@prisma/client';
-import { InternalError, ValidationError } from '@kitiumai/error';
-import type { DatabaseConfig, PoolingConfig } from './types';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { InternalError } from '@kitiumai/error';
+import { loadDatabaseConfig, validateDatabaseConfig } from './config';
 import { createConnectionPool } from './pooling';
+import type { DatabaseConfig, HealthReport, PoolingConfig } from './types';
+import { configureObservability, getMetricsSnapshot, logStructured, recordQueryMetric } from './observability';
+import { retryWithBackoff } from './utils';
 
 let prismaInstance: PrismaClient | null = null;
+let shutdownRegistered = false;
+let shuttingDown = false;
 
 /**
  * Initialize the database client with connection pooling
@@ -19,52 +24,46 @@ export async function initializeDatabase(
     return prismaInstance;
   }
 
-  const databaseUrl = config.databaseUrl || process.env['DATABASE_URL'];
+  const resolvedConfig = loadDatabaseConfig(config);
+  validateDatabaseConfig(resolvedConfig);
+  configureObservability(resolvedConfig.observability);
 
-  if (!databaseUrl) {
-    throw new ValidationError({
-      code: 'database/missing_url',
-      message:
-        'DATABASE_URL is not defined. Please set it in your environment variables or pass it to initializeDatabase.',
-      severity: 'error',
-      retryable: false,
-    });
-  }
+  const databaseUrl = resolvedConfig.databaseUrl!;
+  const poolingConfig: PoolingConfig = resolvedConfig.pooling!;
 
-  // Create pooling configuration from environment variables or defaults
-  const poolingConfig: PoolingConfig = config.pooling || {
-    min: parseInt(process.env['DATABASE_POOL_MIN'] || '2'),
-    max: parseInt(process.env['DATABASE_POOL_MAX'] || '10'),
-    idleTimeoutMillis: parseInt(process.env['DATABASE_POOL_IDLE_TIMEOUT'] || '30000'),
-    connectionTimeoutMillis: parseInt(process.env['DATABASE_POOL_CONNECTION_TIMEOUT'] || '5000'),
-    maxUses: 7500,
-    reapIntervalMillis: 1000,
-    idleInTransactionSessionTimeoutMillis: 60000,
-    allowExitOnIdle: true,
-  };
-
-  // Add connection pooling to the database URL
   const pooledDatabaseUrl = createConnectionPool(databaseUrl, poolingConfig);
 
-  // Initialize Prisma Client with connection pooling
   prismaInstance = new PrismaClient({
     datasources: {
       db: {
         url: pooledDatabaseUrl,
       },
     },
-    log:
-      config.enableLogging || process.env['NODE_ENV'] === 'development'
-        ? ['query', 'error', 'warn']
-        : ['error'],
+    log: resolvedConfig.enableLogging || process.env['NODE_ENV'] === 'development'
+      ? ['query', 'error', 'warn']
+      : ['error'],
   });
 
-  // Connect to the database
   try {
-    await prismaInstance.$connect();
-    console.log('Database connection established');
+    await retryWithBackoff(
+      () => prismaInstance!.$connect(),
+      {
+        retries: resolvedConfig.retry?.maxRetries,
+        delay: resolvedConfig.retry?.retryDelay,
+        onRetry: (attempt, error) =>
+          logStructured('warn', 'Retrying PostgreSQL connection', {
+            attempt,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      }
+    );
+    logStructured('info', 'Database connection established', {
+      pooling: { min: poolingConfig.min, max: poolingConfig.max },
+    });
   } catch (error) {
-    console.error('Failed to connect to database');
+    logStructured('error', 'Failed to connect to database', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw new InternalError({
       code: 'database/connection_failed',
       message: 'Database connection failed',
@@ -74,16 +73,18 @@ export async function initializeDatabase(
     });
   }
 
-  // Handle graceful shutdown
-  process.on('SIGINT', () => {
-    disconnectDatabase();
-    process.exit(0);
-  });
+  if (!shutdownRegistered) {
+    shutdownRegistered = true;
+    const handleSignal = async (signal: NodeJS.Signals) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logStructured('warn', 'Received shutdown signal', { signal });
+      await disconnectDatabase({ wait: true, timeoutMs: resolvedConfig.shutdown?.gracefulTimeoutMs });
+    };
 
-  process.on('SIGTERM', () => {
-    disconnectDatabase();
-    process.exit(0);
-  });
+    process.on('SIGINT', handleSignal);
+    process.on('SIGTERM', handleSignal);
+  }
 
   return prismaInstance;
 }
@@ -106,20 +107,57 @@ export function getDatabase(): PrismaClient {
 /**
  * Disconnect from the database
  */
-export async function disconnectDatabase(): Promise<void> {
-  if (prismaInstance) {
-    await prismaInstance.$disconnect();
-    prismaInstance = null;
-    console.log('Database connection closed');
-  }
+export async function disconnectDatabase(options: { wait?: boolean; timeoutMs?: number } = {}): Promise<void> {
+  if (!prismaInstance) return;
+  const { wait = false, timeoutMs = 5000 } = options;
+
+  const disconnectPromise = prismaInstance.$disconnect();
+  const timed = Promise.race([
+    disconnectPromise,
+    wait
+      ? new Promise((resolve) => setTimeout(resolve, timeoutMs))
+      : Promise.resolve(),
+  ]);
+
+  await timed;
+  prismaInstance = null;
+  logStructured('info', 'Database connection closed');
 }
 
 /**
  * Execute a raw SQL query
  */
-export async function executeQuery<T = unknown>(query: string, params?: unknown[]): Promise<T[]> {
+export async function executeQuery<T = unknown>(query: Prisma.Sql, operation?: string): Promise<T[]> {
   const db = getDatabase();
-  return db.$queryRawUnsafe(query, ...(params || []));
+  const start = process.hrtime.bigint();
+  try {
+    const result = await db.$queryRaw<T[]>(query);
+    recordQueryMetric(start, process.hrtime.bigint(), operation, true);
+    return result as T[];
+  } catch (error) {
+    recordQueryMetric(start, process.hrtime.bigint(), operation, false);
+    logStructured('error', 'Query execution failed', {
+      error: error instanceof Error ? error.message : String(error),
+      operation,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Execute a raw SQL query without parameter safety. Prefer executeQuery.
+ */
+export async function executeUnsafeQuery<T = unknown>(query: string, params?: unknown[]): Promise<T[]> {
+  const db = getDatabase();
+  const start = process.hrtime.bigint();
+  try {
+    const result = await db.$queryRawUnsafe<T[]>(query, ...(params || []));
+    recordQueryMetric(start, process.hrtime.bigint(), 'unsafe-query', true);
+    return result as T[];
+  } catch (error) {
+    recordQueryMetric(start, process.hrtime.bigint(), 'unsafe-query', false);
+    throw error;
+  }
 }
 
 /**
@@ -131,7 +169,25 @@ export async function healthCheck(): Promise<boolean> {
     await db.$queryRaw`SELECT 1`;
     return true;
   } catch {
-    console.error('Database health check failed');
+    logStructured('error', 'Database health check failed');
     return false;
   }
+}
+
+export async function readinessCheck(): Promise<HealthReport> {
+  try {
+    const db = getDatabase();
+    await db.$queryRaw`SELECT 1`;
+    return { service: 'postgres', status: 'ready' };
+  } catch (error) {
+    return {
+      service: 'postgres',
+      status: 'unhealthy',
+      details: { error: error instanceof Error ? error.message : String(error) },
+    };
+  }
+}
+
+export function databaseMetrics(): Record<string, unknown> {
+  return getMetricsSnapshot();
 }

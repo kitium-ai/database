@@ -2,46 +2,54 @@
  * Database seeding utilities
  */
 
+import bcrypt from 'bcryptjs';
 import { getDatabase } from './client';
-import type { SeedResult } from './types';
+import { loadDatabaseConfig } from './config';
+import type { DatabaseConfig, SeedResult } from './types';
+import { logStructured } from './observability';
 
 /**
  * Seed the database with initial data
  */
-export async function seedDatabase(): Promise<SeedResult> {
+export async function seedDatabase(config: Partial<DatabaseConfig> = {}): Promise<SeedResult> {
   const db = getDatabase();
+  const resolvedConfig = loadDatabaseConfig(config);
   let recordsCreated = 0;
   let recordsUpdated = 0;
   const errors: string[] = [];
 
+  const hash = resolvedConfig.passwordHasher || (async (password: string) => bcrypt.hash(password, 10));
+  const adminPassword = await hash(resolvedConfig.defaultAdminPassword || 'ChangeMe!123');
+
   try {
-    console.log('Seeding database...');
+    logStructured('info', 'Seeding database...');
 
     // Seed admin user
     try {
-      const adminExists = await db.user.findFirst({
-        where: { role: 'ADMIN' },
+      const existingAdmin = await db.user.findUnique({ where: { email: 'admin@kitiumai.local' } });
+      await db.user.upsert({
+        where: { email: 'admin@kitiumai.local' },
+        create: {
+          email: 'admin@kitiumai.local',
+          name: 'Administrator',
+          password: adminPassword,
+          role: 'ADMIN',
+          isActive: true,
+        },
+        update: {
+          password: adminPassword,
+          isActive: true,
+        },
       });
-
-      if (!adminExists) {
-        await db.user.create({
-          data: {
-            email: 'admin@kitiumai.local',
-            name: 'Administrator',
-            password: 'hashed_password_change_me', // TODO: Use bcrypt in production
-            role: 'ADMIN',
-            isActive: true,
-          },
-        });
-        recordsCreated++;
-        console.log('Admin user created');
-      } else {
+      if (existingAdmin) {
         recordsUpdated++;
-        console.log('Admin user already exists');
+      } else {
+        recordsCreated++;
       }
+      logStructured('info', 'Admin user ensured');
     } catch (error) {
       const message = `Failed to seed admin user: ${error instanceof Error ? error.message : String(error)}`;
-      console.error(message);
+      logStructured('error', message);
       errors.push(message);
     }
 
@@ -61,24 +69,28 @@ export async function seedDatabase(): Promise<SeedResult> {
 
     for (const userData of defaultUsers) {
       try {
-        const userExists = await db.user.findUnique({
-          where: { email: userData.email },
-        });
+        const existingUser = await db.user.findUnique({ where: { email: userData.email } });
 
-        if (!userExists) {
-          await db.user.create({
-            data: {
-              ...userData,
-              password: 'hashed_password_change_me', // TODO: Use bcrypt in production
-              isActive: true,
-            },
-          });
+        await db.user.upsert({
+          where: { email: userData.email },
+          create: {
+            ...userData,
+            password: await hash(resolvedConfig.defaultAdminPassword || 'ChangeMe!123'),
+            isActive: true,
+          },
+          update: {
+            isActive: true,
+          },
+        });
+        if (existingUser) {
+          recordsUpdated++;
+        } else {
           recordsCreated++;
-          console.log(`User ${userData.email} created`);
         }
+        logStructured('info', `User ${userData.email} ensured`);
       } catch (error) {
         const message = `Failed to seed user ${userData.email}: ${error instanceof Error ? error.message : String(error)}`;
-        console.error(message);
+        logStructured('error', message);
         errors.push(message);
       }
     }
@@ -114,30 +126,26 @@ export async function seedDatabase(): Promise<SeedResult> {
 
     for (const config of configs) {
       try {
-        const existingConfig = await db.appConfig.findUnique({
-          where: { key: config.key },
-        });
+        const existingConfig = await db.appConfig.findUnique({ where: { key: config.key } });
 
-        if (!existingConfig) {
-          await db.appConfig.create({
-            data: config,
-          });
-          recordsCreated++;
-        } else {
-          await db.appConfig.update({
-            where: { key: config.key },
-            data: { value: config.value },
-          });
+        await db.appConfig.upsert({
+          where: { key: config.key },
+          update: { value: config.value },
+          create: config,
+        });
+        if (existingConfig) {
           recordsUpdated++;
+        } else {
+          recordsCreated++;
         }
       } catch (error) {
         const message = `Failed to seed config ${config.key}: ${error instanceof Error ? error.message : String(error)}`;
-        console.error(message);
+        logStructured('error', message);
         errors.push(message);
       }
     }
 
-    console.log('Database seeding completed');
+    logStructured('info', 'Database seeding completed');
 
     return {
       success: errors.length === 0,
@@ -151,7 +159,7 @@ export async function seedDatabase(): Promise<SeedResult> {
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('Database seeding failed');
+    logStructured('error', 'Database seeding failed', { error: errorMessage });
     return {
       success: false,
       message: `Database seeding failed: ${errorMessage}`,
@@ -163,11 +171,19 @@ export async function seedDatabase(): Promise<SeedResult> {
 /**
  * Clear all data from the database (use with caution!)
  */
-export async function clearDatabase(): Promise<SeedResult> {
+export async function clearDatabase(config: Partial<DatabaseConfig> = {}): Promise<SeedResult> {
   const db = getDatabase();
+  const resolvedConfig = loadDatabaseConfig(config);
+
+  if (!resolvedConfig.unsafeAllowClearDatabase) {
+    return {
+      success: false,
+      message: 'Clearing the database is disabled. Set ALLOW_CLEAR_DATABASE=true to enable.',
+    };
+  }
 
   try {
-    console.warn('Clearing all data from the database...');
+    logStructured('warn', 'Clearing all data from the database...');
 
     // Delete in the correct order to respect foreign keys
     await db.auditLog.deleteMany();
@@ -175,7 +191,7 @@ export async function clearDatabase(): Promise<SeedResult> {
     await db.user.deleteMany();
     await db.appConfig.deleteMany();
 
-    console.log('Database cleared');
+    logStructured('info', 'Database cleared');
 
     return {
       success: true,
@@ -183,7 +199,7 @@ export async function clearDatabase(): Promise<SeedResult> {
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('Failed to clear database');
+    logStructured('error', 'Failed to clear database', { error: errorMessage });
     return {
       success: false,
       message: `Failed to clear database: ${errorMessage}`,

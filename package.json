@@ -74,7 +74,9 @@
     "@kitiumai/logger": "^2.0.1",
     "@kitiumai/types": "^2.0.1",
     "@kitiumai/error": "^2.0.1",
-    "@kitiumai/utils-ts": "^2.0.2"
+    "@kitiumai/utils-ts": "^2.0.2",
+    "bcryptjs": "^2.4.3",
+    "mongodb": "^6.10.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
