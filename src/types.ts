@@ -16,17 +16,44 @@ export interface PoolingConfig {
   allowExitOnIdle?: boolean;
 }
 
+export interface RetryConfig {
+  maxRetries: number;
+  retryDelay: number;
+}
+
+export interface ObservabilityOptions {
+  enableMetrics?: boolean;
+  enableTracing?: boolean;
+  loggerName?: string;
+  logLevel?: 'debug' | 'info' | 'warn' | 'error';
+}
+
+export interface ShutdownConfig {
+  gracefulTimeoutMs?: number;
+  waitForRequests?: () => Promise<void>;
+}
+
+export interface MongoConfig {
+  mongodbUrl?: string;
+  dbName?: string;
+  poolSize?: number;
+}
+
 /**
  * Database configuration
  */
 export interface DatabaseConfig {
-  databaseUrl: string;
-  mongodbUrl?: string;
-  pooling: PoolingConfig;
+  databaseUrl?: string;
+  pooling?: PoolingConfig;
   enableLogging?: boolean;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
-  maxRetries?: number;
-  retryDelay?: number;
+  retry?: RetryConfig;
+  observability?: ObservabilityOptions;
+  shutdown?: ShutdownConfig;
+  mongo?: MongoConfig;
+  unsafeAllowClearDatabase?: boolean;
+  defaultAdminPassword?: string;
+  passwordHasher?: (password: string) => Promise<string>;
 }
 
 /**
@@ -45,9 +72,15 @@ export interface MigrationResult {
  * Seed result
  */
 export interface SeedResult {
-  success: boolean;
-  message: string;
-  recordsCreated?: number;
-  recordsUpdated?: number;
-  errors?: string[];
+ success: boolean;
+ message: string;
+ recordsCreated?: number;
+ recordsUpdated?: number;
+ errors?: string[];
+}
+
+export interface HealthReport {
+  service: 'postgres' | 'mongodb';
+  status: 'ready' | 'initializing' | 'unhealthy';
+  details?: Record<string, unknown>;
 }

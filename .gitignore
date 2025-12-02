@@ -9,6 +9,7 @@ dist/
 *.js
 *.js.map
 *.d.ts
+!src/@types/*.d.ts
 *.d.ts.map
 
 # Environment
