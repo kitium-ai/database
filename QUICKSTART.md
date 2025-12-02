@@ -18,6 +18,7 @@ docker-compose up -d
 ```
 
 This starts:
+
 - PostgreSQL on port 5432
 - PgBouncer (connection pool) on port 6432
 - MongoDB on port 27017
@@ -53,12 +54,14 @@ NODE_ENV=development
 ### 1. Install PostgreSQL
 
 **macOS:**
+
 ```bash
 brew install postgresql@16
 brew services start postgresql@16
 ```
 
 **Linux (Ubuntu):**
+
 ```bash
 sudo apt-get install postgresql-16
 sudo systemctl start postgresql
@@ -114,6 +117,7 @@ npm run db:studio
 ```
 
 This opens Prisma Studio where you can:
+
 - View all data
 - Create/edit records
 - Run queries
@@ -212,21 +216,25 @@ main().catch(console.error);
 ## Database Models Available
 
 ### User
+
 - Manage application users
 - Role-based access control (ADMIN, USER, GUEST)
 - Password storage
 
 ### Session
+
 - Track user sessions
 - Authentication tokens
 - Auto-expiring tokens
 
 ### AuditLog
+
 - Track all user actions
 - Store what changed and when
 - Metadata for compliance
 
 ### AppConfig
+
 - Store application settings
 - Feature flags
 - Environment-specific config
@@ -259,6 +267,7 @@ Error: connect ECONNREFUSED 127.0.0.1:5432
 ```
 
 **Solution:**
+
 ```bash
 # Check if PostgreSQL is running
 docker-compose ps    # if using Docker
@@ -273,6 +282,7 @@ Error: Cannot find module '@prisma/client'
 ```
 
 **Solution:**
+
 ```bash
 npm run db:generate
 npm run db:migrate:dev
@@ -285,6 +295,7 @@ Error: listen EADDRINUSE: address already in use :::5432
 ```
 
 **Solution:**
+
 ```bash
 # Change docker-compose port
 sed -i 's/5432:5432/5433:5432/' docker-compose.yml
@@ -295,11 +306,13 @@ docker-compose up -d
 
 **Solution:**
 Check your `.env` file:
+
 ```bash
 cat .env | grep DATABASE_URL
 ```
 
 Must have format:
+
 ```
 postgresql://user:password@host:port/database?schema=public
 ```

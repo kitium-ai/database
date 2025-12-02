@@ -2,6 +2,7 @@
  * Database migration utilities and automation
  */
 
+import { InternalError } from '@kitiumai/error';
 import { getDatabase } from './client';
 import type { MigrationResult } from './types';
 
@@ -12,20 +13,26 @@ export async function migrationRunner(): Promise<MigrationResult[]> {
   const db = getDatabase();
 
   try {
-    console.log('🔄 Running database migrations...');
+    console.log('Running database migrations...');
 
-    const result = await db.$executeRawUnsafe(`
+    await db.$executeRawUnsafe(`
       SELECT version, description, type, installed_by, installed_on, execution_time, success
       FROM "_prisma_migrations"
       ORDER BY installed_on DESC
       LIMIT 10
     `);
 
-    console.log('✓ Migration check completed');
+    console.log('Migration check completed');
     return [];
   } catch (error) {
-    console.error('✗ Migration error:', error);
-    throw error;
+    console.error('Migration error');
+    throw new InternalError({
+      code: 'database/migration_failed',
+      message: 'Migration execution failed',
+      severity: 'error',
+      retryable: false,
+      cause: error,
+    });
   }
 }
 
@@ -42,9 +49,9 @@ export async function isMigrationsUpToDate(): Promise<boolean> {
       WHERE finished_at IS NULL
     `;
 
-    return (pending as any[])[0]?.count === 0;
-  } catch (error) {
-    console.error('Failed to check migration status:', error);
+    return (pending as Array<{ count: number }>)[0]?.count === 0;
+  } catch {
+    console.error('Failed to check migration status');
     return false;
   }
 }
@@ -68,8 +75,8 @@ export async function getMigrationHistory(): Promise<MigrationResult[]> {
     `;
 
     return (migrations || []) as MigrationResult[];
-  } catch (error) {
-    console.error('Failed to retrieve migration history:', error);
+  } catch {
+    console.error('Failed to retrieve migration history');
     return [];
   }
 }
@@ -78,10 +85,10 @@ export async function getMigrationHistory(): Promise<MigrationResult[]> {
  * Rollback to a specific migration
  */
 export async function rollbackToMigration(migrationId: string): Promise<boolean> {
+  console.warn('Rollback functionality requires manual intervention with Prisma');
   console.warn(
-    '⚠️  Rollback functionality requires manual intervention with Prisma'
+    `To rollback, manually execute: prisma migrate resolve --rolled-back ${migrationId}`
   );
-  console.warn(`To rollback, manually execute: prisma migrate resolve --rolled-back ${migrationId}`);
 
   return true;
 }
@@ -94,7 +101,7 @@ export async function validateSchema(): Promise<{ valid: boolean; errors: string
   const errors: string[] = [];
 
   try {
-    console.log('🔍 Validating database schema...');
+    console.log('Validating database schema...');
 
     // Check if required tables exist
     const tables = await db.$queryRaw`
@@ -110,11 +117,11 @@ export async function validateSchema(): Promise<{ valid: boolean; errors: string
       return { valid: false, errors };
     }
 
-    console.log(`✓ Found ${tables.length} tables in the database`);
+    console.log(`Found ${tables.length} tables in the database`);
 
     // Check for migrations table
-    const hasMigrationsTable = (tables as any[]).some(
-      (t: any) => t.table_name === '_prisma_migrations'
+    const hasMigrationsTable = (tables as Array<Record<string, unknown>>).some(
+      (t) => t['table_name'] === '_prisma_migrations'
     );
 
     if (!hasMigrationsTable) {
@@ -122,10 +129,12 @@ export async function validateSchema(): Promise<{ valid: boolean; errors: string
       return { valid: false, errors };
     }
 
-    console.log('✓ Schema validation completed');
+    console.log('Schema validation completed');
     return { valid: errors.length === 0, errors };
   } catch (error) {
-    errors.push(`Schema validation error: ${error instanceof Error ? error.message : String(error)}`);
+    errors.push(
+      `Schema validation error: ${error instanceof Error ? error.message : String(error)}`
+    );
     return { valid: false, errors };
   }
 }
@@ -148,9 +157,9 @@ export async function getDatabaseStats(): Promise<Record<string, unknown>> {
       WHERE datname = current_database()
     `;
 
-    return (stats as any[])[0] || {};
-  } catch (error) {
-    console.error('Failed to get database statistics:', error);
+    return (stats as Array<Record<string, unknown>>)[0] || {};
+  } catch {
+    console.error('Failed to get database statistics');
     return {};
   }
 }

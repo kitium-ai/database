@@ -9,14 +9,13 @@ import type { PoolingConfig } from './types';
  * Create a pooled database connection URL with PgBouncer configuration
  * This allows for efficient connection management in production environments
  */
-export function createConnectionPool(
-  databaseUrl: string,
-  config: PoolingConfig
-): string {
+export function createConnectionPool(databaseUrl: string, config: PoolingConfig): string {
   // Parse the database URL
   const url = new URL(databaseUrl);
 
   // Add connection pooling parameters to the URL
+  // These parameter names are PostgreSQL/PgBouncer standard and must use snake_case
+  /* eslint-disable @typescript-eslint/naming-convention */
   const poolingParams = new URLSearchParams({
     // Connection pool settings
     statement_cache_size: '0', // Disable statement caching for pooling
@@ -34,6 +33,7 @@ export function createConnectionPool(
     tcp_keepalives_count: '5',
     application_name: 'kitiumai-database',
   });
+  /* eslint-enable @typescript-eslint/naming-convention */
 
   // Merge existing query parameters with pooling parameters
   const existingParams = url.searchParams;
@@ -110,16 +110,15 @@ admin_users = postgres
  */
 export function getPoolingConfigFromEnv(): PoolingConfig {
   return {
-    min: parseInt(process.env.DATABASE_POOL_MIN || '2'),
-    max: parseInt(process.env.DATABASE_POOL_MAX || '10'),
-    idleTimeoutMillis: parseInt(process.env.DATABASE_POOL_IDLE_TIMEOUT || '30000'),
-    connectionTimeoutMillis: parseInt(process.env.DATABASE_POOL_CONNECTION_TIMEOUT || '5000'),
-    maxUses: parseInt(process.env.DATABASE_POOL_MAX_USES || '7500'),
-    reapIntervalMillis: parseInt(process.env.DATABASE_POOL_REAP_INTERVAL || '1000'),
+    min: parseInt(process.env['DATABASE_POOL_MIN'] || '2'),
+    max: parseInt(process.env['DATABASE_POOL_MAX'] || '10'),
+    idleTimeoutMillis: parseInt(process.env['DATABASE_POOL_IDLE_TIMEOUT'] || '30000'),
+    connectionTimeoutMillis: parseInt(process.env['DATABASE_POOL_CONNECTION_TIMEOUT'] || '5000'),
+    maxUses: parseInt(process.env['DATABASE_POOL_MAX_USES'] || '7500'),
+    reapIntervalMillis: parseInt(process.env['DATABASE_POOL_REAP_INTERVAL'] || '1000'),
     idleInTransactionSessionTimeoutMillis: parseInt(
-      process.env.DATABASE_POOL_IDLE_IN_TRANSACTION || '60000'
+      process.env['DATABASE_POOL_IDLE_IN_TRANSACTION'] || '60000'
     ),
-    allowExitOnIdle:
-      process.env.DATABASE_POOL_ALLOW_EXIT_ON_IDLE !== 'false',
+    allowExitOnIdle: process.env['DATABASE_POOL_ALLOW_EXIT_ON_IDLE'] !== 'false',
   };
 }

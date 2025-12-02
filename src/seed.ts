@@ -15,7 +15,7 @@ export async function seedDatabase(): Promise<SeedResult> {
   const errors: string[] = [];
 
   try {
-    console.log('🌱 Seeding database...');
+    console.log('Seeding database...');
 
     // Seed admin user
     try {
@@ -34,14 +34,14 @@ export async function seedDatabase(): Promise<SeedResult> {
           },
         });
         recordsCreated++;
-        console.log('  ✓ Admin user created');
+        console.log('Admin user created');
       } else {
         recordsUpdated++;
-        console.log('  ℹ Admin user already exists');
+        console.log('Admin user already exists');
       }
     } catch (error) {
       const message = `Failed to seed admin user: ${error instanceof Error ? error.message : String(error)}`;
-      console.error(`  ✗ ${message}`);
+      console.error(message);
       errors.push(message);
     }
 
@@ -74,11 +74,11 @@ export async function seedDatabase(): Promise<SeedResult> {
             },
           });
           recordsCreated++;
-          console.log(`  ✓ User ${userData.email} created`);
+          console.log(`User ${userData.email} created`);
         }
       } catch (error) {
         const message = `Failed to seed user ${userData.email}: ${error instanceof Error ? error.message : String(error)}`;
-        console.error(`  ✗ ${message}`);
+        console.error(message);
         errors.push(message);
       }
     }
@@ -132,12 +132,12 @@ export async function seedDatabase(): Promise<SeedResult> {
         }
       } catch (error) {
         const message = `Failed to seed config ${config.key}: ${error instanceof Error ? error.message : String(error)}`;
-        console.error(`  ✗ ${message}`);
+        console.error(message);
         errors.push(message);
       }
     }
 
-    console.log('✓ Database seeding completed');
+    console.log('Database seeding completed');
 
     return {
       success: errors.length === 0,
@@ -147,11 +147,11 @@ export async function seedDatabase(): Promise<SeedResult> {
           : `Seeding completed with ${errors.length} error(s)`,
       recordsCreated,
       recordsUpdated,
-      errors: errors.length > 0 ? errors : undefined,
+      ...(errors.length > 0 ? { errors } : {}),
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('✗ Database seeding failed:', errorMessage);
+    console.error('Database seeding failed');
     return {
       success: false,
       message: `Database seeding failed: ${errorMessage}`,
@@ -167,7 +167,7 @@ export async function clearDatabase(): Promise<SeedResult> {
   const db = getDatabase();
 
   try {
-    console.warn('⚠️  Clearing all data from the database...');
+    console.warn('Clearing all data from the database...');
 
     // Delete in the correct order to respect foreign keys
     await db.auditLog.deleteMany();
@@ -175,7 +175,7 @@ export async function clearDatabase(): Promise<SeedResult> {
     await db.user.deleteMany();
     await db.appConfig.deleteMany();
 
-    console.log('✓ Database cleared');
+    console.log('Database cleared');
 
     return {
       success: true,
@@ -183,7 +183,7 @@ export async function clearDatabase(): Promise<SeedResult> {
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('✗ Failed to clear database:', errorMessage);
+    console.error('Failed to clear database');
     return {
       success: false,
       message: `Failed to clear database: ${errorMessage}`,

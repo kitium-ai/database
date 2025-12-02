@@ -37,15 +37,11 @@ async function main() {
         } else {
           history.forEach((migration, index) => {
             console.log(`${index + 1}. ${migration.id}`);
-            console.log(
-              `   Status: ${migration.success ? '✓ Success' : '✗ Failed'}`
-            );
+            console.log(`   Status: ${migration.success ? '✓ Success' : '✗ Failed'}`);
             console.log(
               `   Finished: ${migration.finishedAt ? new Date(migration.finishedAt).toISOString() : 'N/A'}`
             );
-            console.log(
-              `   Execution Time: ${migration.executionTime}ms\n`
-            );
+            console.log(`   Execution Time: ${migration.executionTime}ms\n`);
           });
         }
         break;

@@ -102,6 +102,7 @@ const db = await initializeDatabase({
 ```
 
 **Parameters:**
+
 - `config` (optional): Database configuration object
   - `databaseUrl`: PostgreSQL connection string
   - `mongodbUrl`: MongoDB connection string (optional)
@@ -148,10 +149,7 @@ Execute raw SQL queries.
 ```typescript
 import { executeQuery } from '@kitiumai/database';
 
-const results = await executeQuery<User>(
-  'SELECT * FROM users WHERE role = $1',
-  ['ADMIN']
-);
+const results = await executeQuery<User>('SELECT * FROM users WHERE role = $1', ['ADMIN']);
 ```
 
 ### Connection Pooling
@@ -172,6 +170,7 @@ const pooledUrl = createConnectionPool(databaseUrl, {
 ```
 
 **Configuration:**
+
 - `min`: Minimum number of connections in the pool
 - `max`: Maximum number of connections in the pool
 - `idleTimeoutMillis`: Close idle connections after this time
@@ -218,7 +217,7 @@ Get complete migration history.
 import { getMigrationHistory } from '@kitiumai/database';
 
 const history = await getMigrationHistory();
-history.forEach(migration => {
+history.forEach((migration) => {
   console.log(`${migration.id}: ${migration.success ? 'Success' : 'Failed'}`);
 });
 ```
@@ -332,6 +331,7 @@ model User {
 ```
 
 **Roles:**
+
 - `ADMIN`: Full system access
 - `USER`: Standard user access
 - `GUEST`: Limited read-only access
@@ -416,6 +416,7 @@ pgbouncer -d pgbouncer.ini
 ```
 
 **Update your DATABASE_URL to use PgBouncer:**
+
 ```env
 DATABASE_URL="postgresql://user:password@localhost:6432/kitiumai_db?schema=public"
 ```
@@ -427,11 +428,13 @@ DATABASE_URL="postgresql://user:password@localhost:6432/kitiumai_db?schema=publi
 The seed script includes placeholder passwords. In production:
 
 1. Use bcrypt or similar for password hashing:
+
 ```bash
 npm install bcrypt
 ```
 
 2. Update the seed script to hash passwords:
+
 ```typescript
 import bcrypt from 'bcrypt';
 
@@ -502,8 +505,8 @@ import { initializeDatabase } from '@kitiumai/database';
 
 await initializeDatabase({
   pooling: {
-    min: 5,           // Maintain 5 warm connections
-    max: 20,          // Allow up to 20 connections
+    min: 5, // Maintain 5 warm connections
+    max: 20, // Allow up to 20 connections
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
   },
@@ -562,6 +565,7 @@ const users = await db.user.createMany({
 **Error:** `Client.connect() timeout expired`
 
 **Solution:** Increase connection timeout:
+
 ```env
 DATABASE_POOL_CONNECTION_TIMEOUT=10000
 ```
@@ -571,6 +575,7 @@ DATABASE_POOL_CONNECTION_TIMEOUT=10000
 **Error:** `remaining connection slots reserved for non-replication superuser connections`
 
 **Solution:** Reduce pool size or enable PgBouncer:
+
 ```env
 DATABASE_POOL_MAX=5
 ```
@@ -580,6 +585,7 @@ DATABASE_POOL_MAX=5
 **Error:** `The database schema is not in sync with the Prisma schema`
 
 **Solution:** Run migrations:
+
 ```bash
 npm run db:migrate:dev
 ```
@@ -589,6 +595,7 @@ npm run db:migrate:dev
 **Error:** `Could not find the @prisma/client module`
 
 **Solution:** Generate the Prisma Client:
+
 ```bash
 npm run db:generate
 ```
