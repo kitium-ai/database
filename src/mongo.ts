@@ -7,8 +7,12 @@ import { retryWithBackoff } from './utils';
 
 let mongoClient: MongoClient | null = null;
 
-export async function initializeMongoDatabase(config: Partial<DatabaseConfig> = {}): Promise<MongoClient> {
-  if (mongoClient) return mongoClient;
+export async function initializeMongoDatabase(
+  config: Partial<DatabaseConfig> = {}
+): Promise<MongoClient> {
+  if (mongoClient) {
+    return mongoClient;
+  }
   const resolved = loadDatabaseConfig(config);
 
   if (!resolved.mongo?.mongodbUrl) {
@@ -21,9 +25,11 @@ export async function initializeMongoDatabase(config: Partial<DatabaseConfig> = 
   }
 
   const client = new MongoClient(resolved.mongo.mongodbUrl, {
-    maxPoolSize: resolved.mongo.poolSize,
+    ...(resolved.mongo.poolSize !== undefined ? { maxPoolSize: resolved.mongo.poolSize } : {}),
     minPoolSize: Math.min(2, resolved.mongo.poolSize || 2),
-    serverSelectionTimeoutMS: resolved.pooling?.connectionTimeoutMillis,
+    ...(resolved.pooling?.connectionTimeoutMillis !== undefined
+      ? { serverSelectionTimeoutMS: resolved.pooling.connectionTimeoutMillis }
+      : {}),
   });
 
   await retryWithBackoff(
@@ -32,8 +38,8 @@ export async function initializeMongoDatabase(config: Partial<DatabaseConfig> = 
       await client.db(resolved.mongo?.dbName).command({ ping: 1 });
     },
     {
-      retries: resolved.retry?.maxRetries,
-      delay: resolved.retry?.retryDelay,
+      ...(resolved.retry?.maxRetries !== undefined ? { retries: resolved.retry.maxRetries } : {}),
+      ...(resolved.retry?.retryDelay !== undefined ? { delay: resolved.retry.retryDelay } : {}),
       onRetry: (attempt, error) =>
         logStructured('warn', 'Retrying MongoDB connection', {
           attempt,

@@ -7,7 +7,12 @@ import { InternalError } from '@kitiumai/error';
 import { loadDatabaseConfig, validateDatabaseConfig } from './config';
 import { createConnectionPool } from './pooling';
 import type { DatabaseConfig, HealthReport, PoolingConfig } from './types';
-import { configureObservability, getMetricsSnapshot, logStructured, recordQueryMetric } from './observability';
+import {
+  configureObservability,
+  getMetricsSnapshot,
+  logStructured,
+  recordQueryMetric,
+} from './observability';
 import { retryWithBackoff } from './utils';
 
 let prismaInstance: PrismaClient | null = null;
@@ -39,24 +44,26 @@ export async function initializeDatabase(
         url: pooledDatabaseUrl,
       },
     },
-    log: resolvedConfig.enableLogging || process.env['NODE_ENV'] === 'development'
-      ? ['query', 'error', 'warn']
-      : ['error'],
+    log:
+      resolvedConfig.enableLogging || process.env['NODE_ENV'] === 'development'
+        ? ['query', 'error', 'warn']
+        : ['error'],
   });
 
   try {
-    await retryWithBackoff(
-      () => prismaInstance!.$connect(),
-      {
-        retries: resolvedConfig.retry?.maxRetries,
-        delay: resolvedConfig.retry?.retryDelay,
-        onRetry: (attempt, error) =>
-          logStructured('warn', 'Retrying PostgreSQL connection', {
-            attempt,
-            error: error instanceof Error ? error.message : String(error),
-          }),
-      }
-    );
+    await retryWithBackoff(() => prismaInstance!.$connect(), {
+      ...(resolvedConfig.retry?.maxRetries !== undefined
+        ? { retries: resolvedConfig.retry.maxRetries }
+        : {}),
+      ...(resolvedConfig.retry?.retryDelay !== undefined
+        ? { delay: resolvedConfig.retry.retryDelay }
+        : {}),
+      onRetry: (attempt, error) =>
+        logStructured('warn', 'Retrying PostgreSQL connection', {
+          attempt,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    });
     logStructured('info', 'Database connection established', {
       pooling: { min: poolingConfig.min, max: poolingConfig.max },
     });
@@ -75,11 +82,18 @@ export async function initializeDatabase(
 
   if (!shutdownRegistered) {
     shutdownRegistered = true;
-    const handleSignal = async (signal: NodeJS.Signals) => {
-      if (shuttingDown) return;
+    const handleSignal = async (signal: NodeJS.Signals): Promise<void> => {
+      if (shuttingDown) {
+        return;
+      }
       shuttingDown = true;
       logStructured('warn', 'Received shutdown signal', { signal });
-      await disconnectDatabase({ wait: true, timeoutMs: resolvedConfig.shutdown?.gracefulTimeoutMs });
+      await disconnectDatabase({
+        wait: true,
+        ...(resolvedConfig.shutdown?.gracefulTimeoutMs !== undefined
+          ? { timeoutMs: resolvedConfig.shutdown.gracefulTimeoutMs }
+          : {}),
+      });
     };
 
     process.on('SIGINT', handleSignal);
@@ -107,16 +121,18 @@ export function getDatabase(): PrismaClient {
 /**
  * Disconnect from the database
  */
-export async function disconnectDatabase(options: { wait?: boolean; timeoutMs?: number } = {}): Promise<void> {
-  if (!prismaInstance) return;
+export async function disconnectDatabase(
+  options: { wait?: boolean; timeoutMs?: number } = {}
+): Promise<void> {
+  if (!prismaInstance) {
+    return;
+  }
   const { wait = false, timeoutMs = 5000 } = options;
 
   const disconnectPromise = prismaInstance.$disconnect();
   const timed = Promise.race([
     disconnectPromise,
-    wait
-      ? new Promise((resolve) => setTimeout(resolve, timeoutMs))
-      : Promise.resolve(),
+    wait ? new Promise((resolve) => setTimeout(resolve, timeoutMs)) : Promise.resolve(),
   ]);
 
   await timed;
@@ -127,7 +143,10 @@ export async function disconnectDatabase(options: { wait?: boolean; timeoutMs?: 
 /**
  * Execute a raw SQL query
  */
-export async function executeQuery<T = unknown>(query: Prisma.Sql, operation?: string): Promise<T[]> {
+export async function executeQuery<T = unknown>(
+  query: Prisma.Sql,
+  operation?: string
+): Promise<T[]> {
   const db = getDatabase();
   const start = process.hrtime.bigint();
   try {
@@ -147,7 +166,10 @@ export async function executeQuery<T = unknown>(query: Prisma.Sql, operation?: s
 /**
  * Execute a raw SQL query without parameter safety. Prefer executeQuery.
  */
-export async function executeUnsafeQuery<T = unknown>(query: string, params?: unknown[]): Promise<T[]> {
+export async function executeUnsafeQuery<T = unknown>(
+  query: string,
+  params?: unknown[]
+): Promise<T[]> {
   const db = getDatabase();
   const start = process.hrtime.bigint();
   try {

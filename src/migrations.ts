@@ -19,7 +19,13 @@ export async function migrationRunner(): Promise<MigrationResult[]> {
     logStructured('info', 'Running database migrations...');
 
     const exec = promisify(execFile);
-    const result = await exec('npx', ['prisma', 'migrate', 'deploy', '--schema', 'prisma/schema.prisma']);
+    const result = await exec('npx', [
+      'prisma',
+      'migrate',
+      'deploy',
+      '--schema',
+      'prisma/schema.prisma',
+    ]);
 
     logStructured('info', 'Migration command completed', { stdout: result.stdout });
 
@@ -101,7 +107,15 @@ export async function rollbackToMigration(migrationId: string): Promise<boolean>
   const exec = promisify(execFile);
   try {
     logStructured('warn', 'Rolling back migration', { migrationId });
-    await exec('npx', ['prisma', 'migrate', 'resolve', '--rolled-back', migrationId, '--schema', 'prisma/schema.prisma']);
+    await exec('npx', [
+      'prisma',
+      'migrate',
+      'resolve',
+      '--rolled-back',
+      migrationId,
+      '--schema',
+      'prisma/schema.prisma',
+    ]);
     return true;
   } catch (error) {
     logStructured('error', 'Rollback failed', {

@@ -18,7 +18,8 @@ export async function seedDatabase(config: Partial<DatabaseConfig> = {}): Promis
   let recordsUpdated = 0;
   const errors: string[] = [];
 
-  const hash = resolvedConfig.passwordHasher || (async (password: string) => bcrypt.hash(password, 10));
+  const hash =
+    resolvedConfig.passwordHasher || (async (password: string) => bcrypt.hash(password, 10));
   const adminPassword = await hash(resolvedConfig.defaultAdminPassword || 'ChangeMe!123');
 
   try {

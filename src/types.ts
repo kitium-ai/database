@@ -72,11 +72,11 @@ export interface MigrationResult {
  * Seed result
  */
 export interface SeedResult {
- success: boolean;
- message: string;
- recordsCreated?: number;
- recordsUpdated?: number;
- errors?: string[];
+  success: boolean;
+  message: string;
+  recordsCreated?: number;
+  recordsUpdated?: number;
+  errors?: string[];
 }
 
 export interface HealthReport {

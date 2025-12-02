@@ -72,6 +72,7 @@ Call `validateDatabaseConfig` to enforce required values in CI/CD.
 ## API Reference
 
 ### Initialization and Health
+
 - `loadDatabaseConfig(overrides?: Partial<DatabaseConfig>): DatabaseConfig`
 - `initializeDatabase(config?: Partial<DatabaseConfig>): Promise<PrismaClient>` – PgBouncer-style pooling, retry/backoff, structured logging, graceful shutdown hooks.
 - `initializeMongoDatabase(config?: Partial<DatabaseConfig>): Promise<MongoClient>` – Pooled MongoDB connection with readiness checks.
@@ -82,10 +83,12 @@ Call `validateDatabaseConfig` to enforce required values in CI/CD.
 - `disconnectDatabase(options?: { wait?: boolean; timeoutMs?: number }): Promise<void>` – Graceful shutdown.
 
 ### Safe Data Access
+
 - `executeQuery<T>(query: Prisma.Sql, operation?: string): Promise<T[]>` – Parameterized raw SQL with metrics/tracing hooks.
 - `executeUnsafeQuery<T>(query: string, params?: unknown[]): Promise<T[]>` – Escape hatch for legacy raw strings.
 
 Example safe query:
+
 ```typescript
 import { executeQuery } from '@kitiumai/database';
 import { Prisma } from '@prisma/client';
@@ -96,23 +99,28 @@ const admins = await executeQuery<{ id: string }>(Prisma.sql`
 ```
 
 ### Connection Pooling
+
 - `createConnectionPool(databaseUrl: string, config: PoolingConfig): string`
 - `getPoolingConfigFromEnv(): PoolingConfig`
 - `generatePgBouncerConfig(databaseUrl: string, config: PoolingConfig, pgBouncerPort?: number): string`
 
 ### Migrations
+
 - `migrationRunner(): Promise<MigrationResult[]>` – Runs `prisma migrate deploy` and returns applied migrations.
 - `rollbackToMigration(migrationId: string): Promise<boolean>` – Wraps `prisma migrate resolve --rolled-back`.
 - `getMigrationHistory()` / `isMigrationsUpToDate()` / `validateSchema()` – Drift and metadata helpers.
 
 ### Seeding and Guardrails
+
 - `seedDatabase(config?: Partial<DatabaseConfig>): Promise<SeedResult>` – Hashed, idempotent seeds (configurable hasher and defaults).
 - `clearDatabase(config?: Partial<DatabaseConfig>): Promise<SeedResult>` – Protected destructive helper (requires `ALLOW_CLEAR_DATABASE=true`).
 
 ### MongoDB Utilities
+
 - `getMongoDatabase()` / `disconnectMongoDatabase()` / `mongoHealthCheck()` – MongoDB lifecycle and probes with pooled client.
 
 ## Observability and Resiliency
+
 - Structured JSON logs via `logStructured` with configurable logger name and level.
 - Query metrics (`totalQueries`, `failures`, `averageDurationMs`, `p95DurationMs`) via `databaseMetrics`.
 - Retry/backoff for client bootstrap and raw queries with circuit-breaker friendly hooks.
@@ -132,6 +140,7 @@ npm run db:validate            # Validate Prisma schema
 ```
 
 ## Security Notes
+
 - Prepared statements by default; unsafe helper provided for legacy flows only.
 - Seed passwords are hashed with bcrypt; override via `DEFAULT_ADMIN_PASSWORD` or `passwordHasher` config.
 - Destructive operations require explicit opt-in (`ALLOW_CLEAR_DATABASE=true`).

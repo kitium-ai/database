@@ -14,15 +14,37 @@ export function configureObservability(newOptions?: ObservabilityOptions): void 
   options = { ...options, ...newOptions };
 }
 
-export function logStructured(level: 'debug' | 'info' | 'warn' | 'error', message: string, meta?: Record<string, unknown>) {
-  const payload = { ts: new Date().toISOString(), level, service: options.loggerName || 'database', message, ...meta };
+export function logStructured(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  message: string,
+  meta?: Record<string, unknown>
+): void {
+  const payload = {
+    ts: new Date().toISOString(),
+    level,
+    service: options.loggerName || 'database',
+    message,
+    ...meta,
+  };
   // eslint-disable-next-line no-console
   console[level](JSON.stringify(payload));
 }
 
-export function recordQueryMetric(start: bigint, end: bigint, operation?: string, success: boolean = true): void {
-  if (!options.enableMetrics) return;
-  metrics.push({ durationMs: timeInMs(start, end), success, operation });
+export function recordQueryMetric(
+  start: bigint,
+  end: bigint,
+  operation?: string,
+  success: boolean = true
+): void {
+  if (!options.enableMetrics) {
+    return;
+  }
+  const metric: QueryMetric = {
+    durationMs: timeInMs(start, end),
+    success,
+    ...(operation !== undefined ? { operation } : {}),
+  };
+  metrics.push(metric);
   if (metrics.length > 1000) {
     metrics.shift();
   }
@@ -32,9 +54,7 @@ export function getMetricsSnapshot(): Record<string, unknown> {
   const durations = metrics.map((m) => m.durationMs);
   const average = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
   const p95 = durations.length
-    ? durations
-        .slice()
-        .sort((a, b) => a - b)[Math.floor(0.95 * (durations.length - 1))]
+    ? durations.slice().sort((a, b) => a - b)[Math.floor(0.95 * (durations.length - 1))]
     : 0;
 
   return {
