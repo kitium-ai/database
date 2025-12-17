@@ -1,7 +1,7 @@
 {
   "name": "@kitiumai/database",
-  "version": "1.0.0",
-  "description": "Enterprise-ready database package with Prisma ORM supporting PostgreSQL and MongoDB",
+  "version": "2.0.0",
+  "description": "TypeScript database toolkit for PostgreSQL (Prisma) and MongoDB with pooling, migrations, seeding, health checks, retries, and observability.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -18,6 +18,76 @@
       },
       "default": "./dist/index.js"
     },
+    "./client": {
+      "import": {
+        "types": "./dist/client.d.ts",
+        "default": "./dist/client.js"
+      },
+      "require": {
+        "types": "./dist/client.d.cts",
+        "default": "./dist/client.cjs"
+      }
+    },
+    "./mongo": {
+      "import": {
+        "types": "./dist/mongo.d.ts",
+        "default": "./dist/mongo.js"
+      },
+      "require": {
+        "types": "./dist/mongo.d.cts",
+        "default": "./dist/mongo.cjs"
+      }
+    },
+    "./pooling": {
+      "import": {
+        "types": "./dist/pooling.d.ts",
+        "default": "./dist/pooling.js"
+      },
+      "require": {
+        "types": "./dist/pooling.d.cts",
+        "default": "./dist/pooling.cjs"
+      }
+    },
+    "./observability": {
+      "import": {
+        "types": "./dist/observability.d.ts",
+        "default": "./dist/observability.js"
+      },
+      "require": {
+        "types": "./dist/observability.d.cts",
+        "default": "./dist/observability.cjs"
+      }
+    },
+    "./migrations": {
+      "import": {
+        "types": "./dist/migrations.d.ts",
+        "default": "./dist/migrations.js"
+      },
+      "require": {
+        "types": "./dist/migrations.d.cts",
+        "default": "./dist/migrations.cjs"
+      }
+    },
+    "./seed": {
+      "import": {
+        "types": "./dist/seed.d.ts",
+        "default": "./dist/seed.js"
+      },
+      "require": {
+        "types": "./dist/seed.d.cts",
+        "default": "./dist/seed.cjs"
+      }
+    },
+    "./types": {
+      "import": {
+        "types": "./dist/types.d.ts",
+        "default": "./dist/types.js"
+      },
+      "require": {
+        "types": "./dist/types.d.cts",
+        "default": "./dist/types.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "sideEffects": false,
@@ -31,8 +101,8 @@
     "SECURITY.md"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --sourcemap --dts --clean --target es2020 --platform node",
-    "dev": "tsup src/index.ts --format cjs,esm --sourcemap --dts --watch",
+    "build": "tsup src/index.ts src/client.ts src/mongo.ts src/pooling.ts src/observability.ts src/migrations.ts src/seed.ts src/types.ts --format cjs,esm --sourcemap --dts --clean --target es2020 --platform node",
+    "dev": "tsup src/index.ts src/client.ts src/mongo.ts src/pooling.ts src/observability.ts src/migrations.ts src/seed.ts src/types.ts --format cjs,esm --sourcemap --dts --watch",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "ts-node scripts/seed.ts",
@@ -102,12 +172,14 @@
     "database",
     "orm",
     "prisma",
+    "prisma-orm",
     "prisma-client",
     "postgresql",
     "postgres",
     "pg",
     "mongodb",
     "mongo",
+    "mongodb-driver",
     "multi-database",
     "sql",
     "nosql",
@@ -119,9 +191,12 @@
     "schema-management",
     "seed",
     "transaction",
+    "health-check",
+    "retry",
     "resilience",
     "observability",
     "metrics",
+    "tracing",
     "typescript",
     "nodejs",
     "backend",
@@ -137,13 +212,8 @@
     "repository-pattern",
     "data-mapper",
     "dal",
-    "devops",
-    "api",
-    "graphql",
-    "rest-api",
     "tree-shakable",
-    "open-source",
-    "mit"
+    "sdk"
   ],
   "author": "Kitium AI",
   "license": "MIT",
