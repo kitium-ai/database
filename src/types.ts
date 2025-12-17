@@ -26,6 +26,7 @@ export type ObservabilityOptions = {
   enableTracing?: boolean;
   loggerName?: string;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  timeoutMs?: number;
 }
 
 export type ShutdownConfig = {

@@ -5,7 +5,6 @@
 import { InternalError, toKitiumError } from '@kitiumai/error';
 import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
 import { sleep, timeout } from '@kitiumai/utils-ts';
-import { type Prisma,PrismaClient } from '@prisma/client';
 
 import { loadDatabaseConfig, validateDatabaseConfig } from './config';
 import {
@@ -14,9 +13,14 @@ import {
   recordQueryMetric,
 } from './observability';
 import { createConnectionPool } from './pooling';
+import {
+  getPrismaClientConstructor,
+  type PrismaClientInstance,
+  type PrismaSql,
+} from './shared/prisma';
 import type { DatabaseConfig, HealthReport } from './types';
 
-let prismaInstance: PrismaClient | null = null;
+let prismaInstance: PrismaClientInstance | null = null;
 let isShutdownRegistered = false;
 let isShuttingDown = false;
 
@@ -85,7 +89,8 @@ async function initializePooledConnection(
 
   const pooledDatabaseUrl = createConnectionPool(databaseUrl, poolingConfig);
 
-  prismaInstance = new PrismaClient({
+  const PrismaClientConstructor = getPrismaClientConstructor();
+  prismaInstance = new PrismaClientConstructor({
     datasources: {
       db: {
         url: pooledDatabaseUrl,
@@ -151,19 +156,23 @@ function registerShutdownHandlers(config: DatabaseConfig): void {
 
 export async function initializeDatabase(
   config: Partial<DatabaseConfig> = {}
-): Promise<PrismaClient> {
+): Promise<PrismaClientInstance> {
   if (prismaInstance) {
     return prismaInstance;
   }
 
   await initializePooledConnection(config);
-  return prismaInstance ?? new PrismaClient();
+  if (prismaInstance) {
+    return prismaInstance;
+  }
+  const PrismaClientConstructor = getPrismaClientConstructor();
+  return new PrismaClientConstructor();
 }
 
 /**
  * Get the Prisma client instance
  */
-export function getDatabase(): PrismaClient {
+export function getDatabase(): PrismaClientInstance {
   if (!prismaInstance) {
     throw new InternalError({
       code: 'database/not_initialized',
@@ -204,7 +213,7 @@ export async function disconnectDatabase(
  * Execute a raw SQL query
  */
 export async function executeQuery<T = unknown>(
-  query: Prisma['Sql'],
+  query: PrismaSql,
   operation?: string
 ): Promise<T[]> {
   const db = getDatabase();
