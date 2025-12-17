@@ -1,21 +1,35 @@
 # Dependencies
 node_modules/
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
+.pnp
+.pnp.js
 
-# Build output
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+
+# Build outputs
 dist/
-*.js
-*.js.map
-*.d.ts
-!src/@types/*.d.ts
-*.d.ts.map
+build/
+out/
+*.tsbuildinfo
 
-# Environment
+# Misc
+.DS_Store
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment variables
 .env
 .env.local
-.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # IDE
 .vscode/
@@ -23,26 +37,33 @@ dist/
 *.swp
 *.swo
 *~
-.DS_Store
 
-# Prisma
-prisma/.env
-prisma/.env.local
-prisma/.env.*.local
+# OS
+Thumbs.db
 
-# Testing
-coverage/
-*.lcov
-.nyc_output/
+# Cache
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.vuepress/dist/
+
+# Temporary files
+*.tmp
+*.temp
+.temp/
 
 # Logs
 logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
 
-# Temp
-tmp/
-temp/
+# Storybook
+storybook-static/
+
+# TypeScript
+*.tsbuildinfo
+.tsbuildinfo
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

@@ -1,11 +1,69 @@
+import { InternalError, toKitiumError } from '@kitiumai/error';
+import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
+import { sleep } from '@kitiumai/utils-ts';
 import { MongoClient } from 'mongodb';
-import { InternalError } from '@kitiumai/error';
+
 import { loadDatabaseConfig } from './config';
 import type { DatabaseConfig, HealthReport } from './types';
-import { logStructured } from './observability';
-import { retryWithBackoff } from './utils';
+
+const baseLogger = getLogger();
+const logger: ReturnType<typeof getLogger> =
+  'child' in baseLogger && typeof baseLogger.child === 'function'
+    ? (baseLogger as IAdvancedLogger).child({ component: 'database-mongo' })
+    : baseLogger;
 
 let mongoClient: MongoClient | null = null;
+
+const SOURCE = '@kitiumai/database';
+
+type MongoOptions = {
+  maxPoolSize?: number;
+  minPoolSize: number;
+  serverSelectionTimeoutMS?: number;
+};
+
+function buildMongoOptions(config: DatabaseConfig): MongoOptions {
+  const options: MongoOptions = {
+    minPoolSize: Math.min(2, config.mongo?.poolSize ?? 2),
+  };
+
+  if (config.mongo?.poolSize !== undefined) {
+    options.maxPoolSize = config.mongo.poolSize;
+  }
+
+  if (config.pooling?.connectionTimeoutMillis !== undefined) {
+    options.serverSelectionTimeoutMS = config.pooling.connectionTimeoutMillis;
+  }
+
+  return options;
+}
+
+async function connectMongoWithRetry(
+  client: MongoClient,
+  config: DatabaseConfig
+): Promise<void> {
+  const maxRetries = config.retry?.maxRetries ?? 3;
+  const retryDelay = config.retry?.retryDelay ?? 1000;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await client.connect();
+      await client.db(config.mongo?.dbName).command({ ping: 1 });
+      return;
+    } catch (error) {
+      if (attempt === maxRetries) {
+        throw error;
+      }
+
+      logger.warn('Retrying MongoDB connection', {
+        attempt: attempt + 1,
+        maxRetries,
+        error: error instanceof Error ? error : undefined,
+      });
+      await sleep(retryDelay * 2 ** attempt);
+    }
+  }
+}
 
 export async function initializeMongoDatabase(
   config: Partial<DatabaseConfig> = {}
@@ -24,33 +82,31 @@ export async function initializeMongoDatabase(
     });
   }
 
-  const client = new MongoClient(resolved.mongo.mongodbUrl, {
-    ...(resolved.mongo.poolSize !== undefined ? { maxPoolSize: resolved.mongo.poolSize } : {}),
-    minPoolSize: Math.min(2, resolved.mongo.poolSize || 2),
-    ...(resolved.pooling?.connectionTimeoutMillis !== undefined
-      ? { serverSelectionTimeoutMS: resolved.pooling.connectionTimeoutMillis }
-      : {}),
+  const client = new MongoClient(resolved.mongo.mongodbUrl, buildMongoOptions(resolved));
+  let lastError: unknown;
+
+  try {
+    await connectMongoWithRetry(client, resolved);
+  } catch (error) {
+    lastError = error;
+  }
+
+  if (!lastError) {
+    mongoClient = client;
+    logger.info('MongoDB connection established', { db: resolved.mongo?.dbName ?? 'default' });
+    return mongoClient;
+  }
+
+  const kitiumError = toKitiumError(lastError, {
+    code: 'database/mongo_connection_failed',
+    message: 'MongoDB connection failed after retries',
+    severity: 'error',
+    kind: 'dependency',
+    retryable: true,
+    source: SOURCE,
   });
-
-  await retryWithBackoff(
-    async () => {
-      await client.connect();
-      await client.db(resolved.mongo?.dbName).command({ ping: 1 });
-    },
-    {
-      ...(resolved.retry?.maxRetries !== undefined ? { retries: resolved.retry.maxRetries } : {}),
-      ...(resolved.retry?.retryDelay !== undefined ? { delay: resolved.retry.retryDelay } : {}),
-      onRetry: (attempt, error) =>
-        logStructured('warn', 'Retrying MongoDB connection', {
-          attempt,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-    }
-  );
-
-  mongoClient = client;
-  logStructured('info', 'MongoDB connection established', { db: resolved.mongo?.dbName });
-  return mongoClient;
+  logger.error('Failed to connect to MongoDB', undefined, kitiumError);
+  throw kitiumError;
 }
 
 export function getMongoDatabase(): MongoClient {
@@ -68,7 +124,7 @@ export function getMongoDatabase(): MongoClient {
 export async function disconnectMongoDatabase(): Promise<void> {
   if (mongoClient) {
     await mongoClient.close();
-    logStructured('info', 'MongoDB connection closed');
+    logger.info('MongoDB connection closed');
     mongoClient = null;
   }
 }

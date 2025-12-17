@@ -5,7 +5,7 @@
 /**
  * Connection pool configuration
  */
-export interface PoolingConfig {
+export type PoolingConfig = {
   min: number;
   max: number;
   idleTimeoutMillis: number;
@@ -16,24 +16,24 @@ export interface PoolingConfig {
   allowExitOnIdle?: boolean;
 }
 
-export interface RetryConfig {
+export type RetryConfig = {
   maxRetries: number;
   retryDelay: number;
 }
 
-export interface ObservabilityOptions {
+export type ObservabilityOptions = {
   enableMetrics?: boolean;
   enableTracing?: boolean;
   loggerName?: string;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
 }
 
-export interface ShutdownConfig {
+export type ShutdownConfig = {
   gracefulTimeoutMs?: number;
   waitForRequests?: () => Promise<void>;
 }
 
-export interface MongoConfig {
+export type MongoConfig = {
   mongodbUrl?: string;
   dbName?: string;
   poolSize?: number;
@@ -42,7 +42,7 @@ export interface MongoConfig {
 /**
  * Database configuration
  */
-export interface DatabaseConfig {
+export type DatabaseConfig = {
   databaseUrl?: string;
   pooling?: PoolingConfig;
   enableLogging?: boolean;
@@ -59,7 +59,7 @@ export interface DatabaseConfig {
 /**
  * Migration result
  */
-export interface MigrationResult {
+export type MigrationResult = {
   id: string;
   checksum: string;
   finishedAt: Date | null;
@@ -71,7 +71,7 @@ export interface MigrationResult {
 /**
  * Seed result
  */
-export interface SeedResult {
+export type SeedResult = {
   success: boolean;
   message: string;
   recordsCreated?: number;
@@ -79,7 +79,7 @@ export interface SeedResult {
   errors?: string[];
 }
 
-export interface HealthReport {
+export type HealthReport = {
   service: 'postgres' | 'mongodb';
   status: 'ready' | 'initializing' | 'unhealthy';
   details?: Record<string, unknown>;

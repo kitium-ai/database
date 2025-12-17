@@ -22,7 +22,7 @@ export function createConnectionPool(databaseUrl: string, config: PoolingConfig)
     max_pool_size: config.max.toString(),
     min_pool_size: config.min.toString(),
     idle_in_transaction_session_timeout: (
-      config.idleInTransactionSessionTimeoutMillis || 60000
+      config.idleInTransactionSessionTimeoutMillis ?? 60000
     ).toString(),
     idle_timeout: config.idleTimeoutMillis.toString(),
     connection_timeout: config.connectionTimeoutMillis.toString(),
@@ -54,17 +54,17 @@ export function createConnectionPool(databaseUrl: string, config: PoolingConfig)
 export function generatePgBouncerConfig(
   databaseUrl: string,
   config: PoolingConfig,
-  pgBouncerPort: number = 6432
+  pgBouncerPort = 6432
 ): string {
   const url = new URL(databaseUrl);
-  const dbName = url.pathname.slice(1) || 'postgres';
+  const dbName = url.pathname.slice(1) ?? 'postgres';
 
   return `
 ; PgBouncer configuration file for @kitiumai/database
 ; Generated automatically - do not edit manually
 
 [databases]
-${dbName} = host=${url.hostname} port=${url.port || 5432} user=${url.username} password=${url.password} dbname=${dbName}
+${dbName} = host=${url.hostname} port=${url.port ?? 5432} user=${url.username} password=${url.password} dbname=${dbName}
 
 [pgbouncer]
 ; Pooling configuration
@@ -76,7 +76,7 @@ reserve_pool_size = ${Math.ceil(config.max * 0.1)}
 reserve_pool_timeout = 3
 
 ; Timeouts
-idle_in_transaction_session_timeout = ${config.idleInTransactionSessionTimeoutMillis || 60000}
+idle_in_transaction_session_timeout = ${config.idleInTransactionSessionTimeoutMillis ?? 60000}
 server_idle_timeout = ${config.idleTimeoutMillis}
 server_connect_timeout = ${config.connectionTimeoutMillis}
 query_wait_timeout = 120
@@ -108,16 +108,17 @@ admin_users = postgres
 /**
  * Get pooling configuration from environment variables
  */
-export function getPoolingConfigFromEnv(): PoolingConfig {
+export function getPoolingConfigFromEnvironment(): PoolingConfig {
   return {
-    min: parseInt(process.env['DATABASE_POOL_MIN'] || '2'),
-    max: parseInt(process.env['DATABASE_POOL_MAX'] || '10'),
-    idleTimeoutMillis: parseInt(process.env['DATABASE_POOL_IDLE_TIMEOUT'] || '30000'),
-    connectionTimeoutMillis: parseInt(process.env['DATABASE_POOL_CONNECTION_TIMEOUT'] || '5000'),
-    maxUses: parseInt(process.env['DATABASE_POOL_MAX_USES'] || '7500'),
-    reapIntervalMillis: parseInt(process.env['DATABASE_POOL_REAP_INTERVAL'] || '1000'),
-    idleInTransactionSessionTimeoutMillis: parseInt(
-      process.env['DATABASE_POOL_IDLE_IN_TRANSACTION'] || '60000'
+    min: Number.parseInt(process.env['DATABASE_POOL_MIN'] ?? '2', 10),
+    max: Number.parseInt(process.env['DATABASE_POOL_MAX'] ?? '10', 10),
+    idleTimeoutMillis: Number.parseInt(process.env['DATABASE_POOL_IDLE_TIMEOUT'] ?? '30000', 10),
+    connectionTimeoutMillis: Number.parseInt(process.env['DATABASE_POOL_CONNECTION_TIMEOUT'] ?? '5000', 10),
+    maxUses: Number.parseInt(process.env['DATABASE_POOL_MAX_USES'] ?? '7500', 10),
+    reapIntervalMillis: Number.parseInt(process.env['DATABASE_POOL_REAP_INTERVAL'] ?? '1000', 10),
+    idleInTransactionSessionTimeoutMillis: Number.parseInt(
+      process.env['DATABASE_POOL_IDLE_IN_TRANSACTION'] ?? '60000',
+      10
     ),
     allowExitOnIdle: process.env['DATABASE_POOL_ALLOW_EXIT_ON_IDLE'] !== 'false',
   };

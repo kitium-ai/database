@@ -2,39 +2,86 @@
  * Prisma client initialization and management
  */
 
-import { Prisma, PrismaClient } from '@prisma/client';
-import { InternalError } from '@kitiumai/error';
+import { InternalError, toKitiumError } from '@kitiumai/error';
+import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
+import { sleep, timeout } from '@kitiumai/utils-ts';
+import { type Prisma,PrismaClient } from '@prisma/client';
+
 import { loadDatabaseConfig, validateDatabaseConfig } from './config';
-import { createConnectionPool } from './pooling';
-import type { DatabaseConfig, HealthReport, PoolingConfig } from './types';
 import {
   configureObservability,
   getMetricsSnapshot,
-  logStructured,
   recordQueryMetric,
 } from './observability';
-import { retryWithBackoff } from './utils';
+import { createConnectionPool } from './pooling';
+import type { DatabaseConfig, HealthReport } from './types';
 
 let prismaInstance: PrismaClient | null = null;
-let shutdownRegistered = false;
-let shuttingDown = false;
+let isShutdownRegistered = false;
+let isShuttingDown = false;
+
+const SOURCE = '@kitiumai/database';
+
+const baseLogger = getLogger();
+const logger: ReturnType<typeof getLogger> =
+  'child' in baseLogger && typeof baseLogger.child === 'function'
+    ? (baseLogger as IAdvancedLogger).child({ component: 'database-client' })
+    : baseLogger;
+
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  config: DatabaseConfig
+): Promise<T> {
+  const maxRetries = config.retry?.maxRetries ?? 3;
+  const retryDelay = config.retry?.retryDelay ?? 1000;
+  let attempt = 0;
+  let lastError: unknown;
+
+  while (attempt <= maxRetries) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxRetries) {
+        break;
+      }
+      logger.warn('Retrying PostgreSQL connection', {
+        attempt: attempt + 1,
+        maxRetries,
+        error: error instanceof Error ? error : undefined,
+      });
+      await sleep(retryDelay * 2 ** attempt);
+      attempt++;
+    }
+  }
+
+  throw toKitiumError(lastError, {
+    code: 'database/connection_retry_exhausted',
+    message: 'Database connection failed after retries',
+    severity: 'error',
+    kind: 'dependency',
+    retryable: false,
+    source: SOURCE,
+  });
+}
 
 /**
  * Initialize the database client with connection pooling
  */
-export async function initializeDatabase(
-  config: Partial<DatabaseConfig> = {}
-): Promise<PrismaClient> {
+async function initializePooledConnection(
+  config: Partial<DatabaseConfig>
+): Promise<void> {
   if (prismaInstance) {
-    return prismaInstance;
+    return;
   }
 
   const resolvedConfig = loadDatabaseConfig(config);
   validateDatabaseConfig(resolvedConfig);
   configureObservability(resolvedConfig.observability);
 
-  const databaseUrl = resolvedConfig.databaseUrl!;
-  const poolingConfig: PoolingConfig = resolvedConfig.pooling!;
+  const databaseUrl = resolvedConfig.databaseUrl ?? '';
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const poolingConfig = resolvedConfig.pooling!;
 
   const pooledDatabaseUrl = createConnectionPool(databaseUrl, poolingConfig);
 
@@ -45,62 +92,72 @@ export async function initializeDatabase(
       },
     },
     log:
-      resolvedConfig.enableLogging || process.env['NODE_ENV'] === 'development'
+      (resolvedConfig.enableLogging ?? process.env['NODE_ENV'] === 'development')
         ? ['query', 'error', 'warn']
         : ['error'],
   });
 
   try {
-    await retryWithBackoff(() => prismaInstance!.$connect(), {
-      ...(resolvedConfig.retry?.maxRetries !== undefined
-        ? { retries: resolvedConfig.retry.maxRetries }
-        : {}),
-      ...(resolvedConfig.retry?.retryDelay !== undefined
-        ? { delay: resolvedConfig.retry.retryDelay }
-        : {}),
-      onRetry: (attempt, error) =>
-        logStructured('warn', 'Retrying PostgreSQL connection', {
-          attempt,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-    });
-    logStructured('info', 'Database connection established', {
+    await retryWithBackoff(
+      async () => {
+        await prismaInstance?.$connect();
+      },
+      resolvedConfig
+    );
+    logger.info('Database connection established', {
       pooling: { min: poolingConfig.min, max: poolingConfig.max },
     });
   } catch (error) {
-    logStructured('error', 'Failed to connect to database', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw new InternalError({
-      code: 'database/connection_failed',
-      message: 'Database connection failed',
-      severity: 'error',
-      retryable: false,
-      cause: error,
-    });
+	    const kitiumError = toKitiumError(error, {
+	      code: 'database/connection_failed',
+	      message: 'Database connection failed',
+	      severity: 'error',
+	      kind: 'dependency',
+	      retryable: true,
+	      source: SOURCE,
+	    });
+	    logger.error('Failed to connect to database', undefined, kitiumError);
+	    throw kitiumError;
+	  }
+
+  registerShutdownHandlers(resolvedConfig);
+}
+
+function registerShutdownHandlers(config: DatabaseConfig): void {
+  if (isShutdownRegistered) {
+    return;
   }
 
-  if (!shutdownRegistered) {
-    shutdownRegistered = true;
-    const handleSignal = async (signal: NodeJS.Signals): Promise<void> => {
-      if (shuttingDown) {
-        return;
-      }
-      shuttingDown = true;
-      logStructured('warn', 'Received shutdown signal', { signal });
-      await disconnectDatabase({
-        wait: true,
-        ...(resolvedConfig.shutdown?.gracefulTimeoutMs !== undefined
-          ? { timeoutMs: resolvedConfig.shutdown.gracefulTimeoutMs }
-          : {}),
-      });
-    };
+  isShutdownRegistered = true;
+  const handleSignal = async (signal: NodeJS.Signals): Promise<void> => {
+    if (isShuttingDown) {
+      return;
+    }
+    isShuttingDown = true;
+    logger.warn('Received shutdown signal', { signal });
+    await disconnectDatabase({
+      isWaitingForGraceful: true,
+      ...(config.shutdown?.gracefulTimeoutMs !== undefined
+        ? { timeoutMs: config.shutdown.gracefulTimeoutMs }
+        : {}),
+    });
+  };
 
-    process.on('SIGINT', handleSignal);
-    process.on('SIGTERM', handleSignal);
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
+  process.on('SIGINT', handleSignal);
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
+  process.on('SIGTERM', handleSignal);
+}
+
+export async function initializeDatabase(
+  config: Partial<DatabaseConfig> = {}
+): Promise<PrismaClient> {
+  if (prismaInstance) {
+    return prismaInstance;
   }
 
-  return prismaInstance;
+  await initializePooledConnection(config);
+  return prismaInstance ?? new PrismaClient();
 }
 
 /**
@@ -122,29 +179,32 @@ export function getDatabase(): PrismaClient {
  * Disconnect from the database
  */
 export async function disconnectDatabase(
-  options: { wait?: boolean; timeoutMs?: number } = {}
+  options: { isWaitingForGraceful?: boolean; timeoutMs?: number } = {}
 ): Promise<void> {
   if (!prismaInstance) {
     return;
   }
-  const { wait = false, timeoutMs = 5000 } = options;
+  const { isWaitingForGraceful = false, timeoutMs = 5000 } = options;
 
   const disconnectPromise = prismaInstance.$disconnect();
-  const timed = Promise.race([
-    disconnectPromise,
-    wait ? new Promise((resolve) => setTimeout(resolve, timeoutMs)) : Promise.resolve(),
-  ]);
+  const timed = isWaitingForGraceful
+    ? timeout(disconnectPromise, timeoutMs, 'Database disconnect timeout')
+    : disconnectPromise;
 
-  await timed;
+  try {
+    await timed;
+  } catch (error) {
+    logger.warn('Database disconnect timeout or error', error instanceof Error ? error : undefined);
+  }
   prismaInstance = null;
-  logStructured('info', 'Database connection closed');
+  logger.info('Database connection closed');
 }
 
 /**
  * Execute a raw SQL query
  */
 export async function executeQuery<T = unknown>(
-  query: Prisma.Sql,
+  query: Prisma['Sql'],
   operation?: string
 ): Promise<T[]> {
   const db = getDatabase();
@@ -155,11 +215,17 @@ export async function executeQuery<T = unknown>(
     return result as T[];
   } catch (error) {
     recordQueryMetric(start, process.hrtime.bigint(), operation, false);
-    logStructured('error', 'Query execution failed', {
-      error: error instanceof Error ? error.message : String(error),
-      operation,
+    const message = operation ? `Query execution failed: ${operation}` : 'Query execution failed';
+    const kitiumError = toKitiumError(error, {
+      code: 'database/query_failed',
+      message,
+      severity: 'error',
+      kind: 'dependency',
+      retryable: true,
+      source: SOURCE,
     });
-    throw error;
+    logger.error('Query execution failed', operation ? { operation } : undefined, kitiumError);
+    throw kitiumError;
   }
 }
 
@@ -173,7 +239,7 @@ export async function executeUnsafeQuery<T = unknown>(
   const db = getDatabase();
   const start = process.hrtime.bigint();
   try {
-    const result = await db.$queryRawUnsafe<T[]>(query, ...(params || []));
+    const result = await db.$queryRawUnsafe<T[]>(query, ...(params ?? []));
     recordQueryMetric(start, process.hrtime.bigint(), 'unsafe-query', true);
     return result as T[];
   } catch (error) {
@@ -190,8 +256,12 @@ export async function healthCheck(): Promise<boolean> {
     const db = getDatabase();
     await db.$queryRaw`SELECT 1`;
     return true;
-  } catch {
-    logStructured('error', 'Database health check failed');
+  } catch (error) {
+    logger.error(
+      'Database health check failed',
+      undefined,
+      error instanceof Error ? error : undefined
+    );
     return false;
   }
 }

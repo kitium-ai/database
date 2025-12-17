@@ -2,12 +2,22 @@
  * Database migration utilities and automation
  */
 
-import { InternalError } from '@kitiumai/error';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+import { toKitiumError } from '@kitiumai/error';
+import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
+
 import { getDatabase } from './client';
 import type { MigrationResult } from './types';
-import { logStructured } from './observability';
+
+const baseLogger = getLogger();
+const logger: ReturnType<typeof getLogger> =
+  'child' in baseLogger && typeof baseLogger.child === 'function'
+    ? (baseLogger as IAdvancedLogger).child({ component: 'database-migrations' })
+    : baseLogger;
+
+const SOURCE = '@kitiumai/database';
 
 /**
  * Run pending migrations
@@ -16,7 +26,7 @@ export async function migrationRunner(): Promise<MigrationResult[]> {
   const db = getDatabase();
 
   try {
-    logStructured('info', 'Running database migrations...');
+    logger.info('Running database migrations...');
 
     const exec = promisify(execFile);
     const result = await exec('npx', [
@@ -27,7 +37,7 @@ export async function migrationRunner(): Promise<MigrationResult[]> {
       'prisma/schema.prisma',
     ]);
 
-    logStructured('info', 'Migration command completed', { stdout: result.stdout });
+    logger.info('Migration command completed', { stdout: result.stdout });
 
     const migrations = await db.$queryRaw<MigrationResult[]>`
       SELECT
@@ -42,16 +52,16 @@ export async function migrationRunner(): Promise<MigrationResult[]> {
 
     return migrations as MigrationResult[];
   } catch (error) {
-    logStructured('error', 'Migration error', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw new InternalError({
+    const kitiumError = toKitiumError(error, {
       code: 'database/migration_failed',
       message: 'Migration execution failed',
       severity: 'error',
+      kind: 'internal',
       retryable: false,
-      cause: error,
+      source: SOURCE,
     });
+    logger.error('Migration error', undefined, kitiumError);
+    throw kitiumError;
   }
 }
 
@@ -69,8 +79,12 @@ export async function isMigrationsUpToDate(): Promise<boolean> {
     `;
 
     return (pending as Array<{ count: number }>)[0]?.count === 0;
-  } catch {
-    logStructured('error', 'Failed to check migration status');
+  } catch (error) {
+    logger.error(
+      'Failed to check migration status',
+      undefined,
+      error instanceof Error ? error : undefined
+    );
     return false;
   }
 }
@@ -93,9 +107,13 @@ export async function getMigrationHistory(): Promise<MigrationResult[]> {
       ORDER BY installed_on DESC
     `;
 
-    return (migrations || []) as MigrationResult[];
-  } catch {
-    logStructured('error', 'Failed to retrieve migration history');
+    return (migrations ?? []) as MigrationResult[];
+  } catch (error) {
+    logger.error(
+      'Failed to retrieve migration history',
+      undefined,
+      error instanceof Error ? error : undefined
+    );
     return [];
   }
 }
@@ -106,7 +124,7 @@ export async function getMigrationHistory(): Promise<MigrationResult[]> {
 export async function rollbackToMigration(migrationId: string): Promise<boolean> {
   const exec = promisify(execFile);
   try {
-    logStructured('warn', 'Rolling back migration', { migrationId });
+    logger.warn('Rolling back migration', { migrationId });
     await exec('npx', [
       'prisma',
       'migrate',
@@ -118,17 +136,16 @@ export async function rollbackToMigration(migrationId: string): Promise<boolean>
     ]);
     return true;
   } catch (error) {
-    logStructured('error', 'Rollback failed', {
-      migrationId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw new InternalError({
+    const kitiumError = toKitiumError(error, {
       code: 'database/rollback_failed',
       message: 'Failed to rollback migration',
       severity: 'error',
+      kind: 'internal',
       retryable: false,
-      cause: error,
+      source: SOURCE,
     });
+    logger.error('Rollback failed', { migrationId }, kitiumError);
+    throw kitiumError;
   }
 }
 
@@ -140,7 +157,7 @@ export async function validateSchema(): Promise<{ valid: boolean; errors: string
   const errors: string[] = [];
 
   try {
-    logStructured('info', 'Validating database schema...');
+    logger.info('Validating database schema...');
 
     // Check if required tables exist
     const tables = await db.$queryRaw`
@@ -156,7 +173,7 @@ export async function validateSchema(): Promise<{ valid: boolean; errors: string
       return { valid: false, errors };
     }
 
-    logStructured('info', 'Schema table count', { count: tables.length });
+    logger.info('Schema table count', { count: tables.length });
 
     // Check for migrations table
     const hasMigrationsTable = (tables as Array<Record<string, unknown>>).some(
@@ -168,12 +185,16 @@ export async function validateSchema(): Promise<{ valid: boolean; errors: string
       return { valid: false, errors };
     }
 
-    logStructured('info', 'Schema validation completed');
+    logger.info('Schema validation completed');
     return { valid: errors.length === 0, errors };
   } catch (error) {
-    errors.push(
-      `Schema validation error: ${error instanceof Error ? error.message : String(error)}`
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(
+      'Schema validation error',
+      undefined,
+      error instanceof Error ? error : undefined
     );
+    errors.push(`Schema validation error: ${errorMessage}`);
     return { valid: false, errors };
   }
 }
@@ -196,9 +217,13 @@ export async function getDatabaseStats(): Promise<Record<string, unknown>> {
       WHERE datname = current_database()
     `;
 
-    return (stats as Array<Record<string, unknown>>)[0] || {};
-  } catch {
-    logStructured('error', 'Failed to get database statistics');
+    return (stats as Array<Record<string, unknown>>)[0] ?? {};
+  } catch (error) {
+    logger.error(
+      'Failed to get database statistics',
+      undefined,
+      error instanceof Error ? error : undefined
+    );
     return {};
   }
 }

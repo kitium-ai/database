@@ -1,3 +1,5 @@
+// This function is now implemented in client.ts with proper error handling
+// Keeping this file for backward compatibility but it's deprecated
 export async function retryWithBackoff<T>(
   operation: () => Promise<T>,
   {
@@ -6,6 +8,7 @@ export async function retryWithBackoff<T>(
     onRetry,
   }: { retries?: number; delay?: number; onRetry?: (attempt: number, error: unknown) => void } = {}
 ): Promise<T> {
+  const { sleep } = await import('@kitiumai/utils-ts');
   let attempt = 0;
   let lastError: unknown;
 
@@ -18,7 +21,7 @@ export async function retryWithBackoff<T>(
         break;
       }
       onRetry?.(attempt + 1, error);
-      await new Promise((resolve) => setTimeout(resolve, delay * Math.pow(2, attempt)));
+      await sleep(delay * 2 ** attempt);
       attempt++;
     }
   }
